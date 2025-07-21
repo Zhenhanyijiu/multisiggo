@@ -24,8 +24,8 @@ compile_frost_lib(){
 }
 param=$1
 run(){
-  if [[ "${param}" == "dev" ]]; then
-    echo "-------------- compile dev"
+  if [[ "${param}" == "dep" ]]; then
+    echo "-------------- compile depend"
     compile_bls_lib
   else
     echo "-------------- test golang project"

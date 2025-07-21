@@ -1,2 +1,2 @@
-# frostgo
+# multisiggo
 implement for frost protocol
