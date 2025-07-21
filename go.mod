@@ -1,4 +1,4 @@
-module frostgo
+module github.com/Zhenhanyijiu/frostgo
 
 go 1.22.4
 
