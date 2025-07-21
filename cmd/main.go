@@ -8,6 +8,7 @@ package main
 import (
 	"crypto/rand"
 	"fmt"
+	"github.com/Zhenhanyijiu/frostgo/frost"
 	bls "github.com/herumi/bls/ffi/go/bls"
 )
 
@@ -44,7 +45,7 @@ func testReadRand() {
 	fmt.Printf("3. (cr.Read) buf=%x\n", buf)
 }
 
-func main() {
+func main1() {
 	bls.Init(bls.BLS12_381)
 	var sec bls.SecretKey
 	sec.SetByCSPRNG()
@@ -69,4 +70,39 @@ func main() {
 	}
 	fmt.Printf("verify %t\n", bls.VerifyPairing(agg, hashPt, pub))
 	testReadRand()
+}
+
+func main() {
+	bls.Init(bls.BLS12_381)
+	var sec bls.SecretKey
+	//sec.SetByCSPRNG()
+	sec.SetDecString("3")
+	str := sec.GetDecString()
+	fmt.Printf("sk dec string:%+v\n", str)
+	var fr, fr2, out bls.Fr
+	fr.SetString(str, 10)
+	fr2.SetString("9", 10)
+	bls.FrMul(&out, &fr, &fr2)
+	fmt.Printf("fr*fr2:%+v\n", out.GetString(10))
+	var sk bls.SecretKey
+	sk.SetDecString(out.GetString(10))
+	//
+	var sk1, sk2 bls.SecretKey
+	sk1.SetDecString("2")
+	sk2.SetDecString("3")
+	out2 := frost.SkMul(&sk1, &sk2)
+	if out2 == nil {
+		panic("error SkMul")
+	}
+	fmt.Printf("out2:%+v\n", out2.GetDecString())
+	//sk1.Add(&sk2)
+	//fmt.Printf("sk2 add :%+v\n", sk1.GetDecString())
+	pk1 := sk1.GetPublicKey()
+	pk2 := sk2.GetPublicKey()
+	fmt.Printf("pk1:%+v\npk2:%+v\n", pk1.GetHexString(), pk2.GetHexString())
+	var g1, g2 bls.G2
+	g1.SetString(pk1.GetHexString(), 16)
+	g2.SetString(pk2.GetHexString(), 16)
+	fmt.Printf("g1:%+v\ng2:%+v\n", g1.GetString(16), g2.GetString(16))
+
 }
