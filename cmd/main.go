@@ -136,8 +136,18 @@ func testGetMasterPublicKey() {
 	pks := bls.GetMasterPublicKey([]bls.SecretKey{sk1, sk2})
 	fmt.Printf("%+v\n%+v\n", pks[0].GetHexString(), pks[1].GetHexString())
 }
+func testID() {
+	var id bls.ID
+	id.SetDecString("123")
+	fmt.Printf("id dec:%+v,hex:%+v\n", id.GetDecString(), id.GetHexString())
+	for i := 0; i < 10; i++ {
+		frost.GetIDType(i, 10)
+		fmt.Println()
+	}
+}
 func main() {
 	bls.Init(bls.BLS12_381)
 	testZkproof()
 	testGetMasterPublicKey()
+	testID()
 }

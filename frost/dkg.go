@@ -4,19 +4,42 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"github.com/herumi/bls/ffi/go/bls"
+	"strconv"
 )
 
-type Dkg struct {
-	t, n int
-	a0   bls.SecretKey
-	a0G  *bls.PublicKey
-	msk  []bls.SecretKey
-	mpk  []bls.PublicKey
-	id   bls.ID
+type IDType struct {
+	index int
+	ids   []bls.ID
 }
 
-func (d *Dkg) Set(t, n int) *Dkg {
+func GetIDType(index, n int) *IDType {
+	ids := make([]bls.ID, n)
+	for i := 0; i < n; i++ {
+		ids[i].SetDecString(strconv.Itoa(1 + i))
+	}
+	ret := &IDType{index: index, ids: ids}
+	fmt.Printf("------ index:%+v\n", ret.index)
+	for i := 0; i < n; i++ {
+		fmt.Printf("ids[%+v]:%+v\n", i, ret.ids[i].GetDecString())
+	}
+	return ret
+}
+
+type Dkg struct {
+	t, n    int
+	a0      bls.SecretKey
+	a0G     *bls.PublicKey
+	msk     []bls.SecretKey
+	mpk     []bls.PublicKey
+	id      bls.ID
+	ids     []bls.ID
+	index   int
+	myShare *bls.SecretKey
+}
+
+func (d *Dkg) Set(t, n int, idType *IDType) *Dkg {
 	d.t = t
 	d.n = n
 	d.a0.SetByCSPRNG()
@@ -26,10 +49,13 @@ func (d *Dkg) Set(t, n int) *Dkg {
 	d.mpk = bls.GetMasterPublicKey(d.msk)
 	//a0对应的公钥
 	d.a0G = &d.mpk[0]
+	d.index = idType.index
+	d.ids = idType.ids
+	d.id = d.ids[d.index]
 	return d
 }
-func New(t, n int) *Dkg {
-	return new(Dkg).Set(t, n)
+func New(t, n int, idType *IDType) *Dkg {
+	return new(Dkg).Set(t, n, idType)
 }
 
 type Poof struct {
@@ -39,6 +65,16 @@ type Poof struct {
 
 func (d *Dkg) GenProof() (*Poof, error) {
 	return ZkProof(&d.id, &d.a0, d.a0G)
+}
+
+func (d *Dkg) GenSecretShare() []bls.SecretKey {
+	// f(id1,id2,id3...)
+	shares := make([]bls.SecretKey, d.n)
+	for i := 0; i < d.n; i++ {
+		shares[i].Set(d.msk, &d.ids[i])
+	}
+	d.myShare = &shares[d.index]
+	return nil
 }
 
 //	func PolyCoeffCommitment(coeffs []bls.SecretKey) []bls.PublicKey {
