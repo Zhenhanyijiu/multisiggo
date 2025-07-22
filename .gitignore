@@ -33,3 +33,4 @@ go.work.sum
 .idea/
 out/
 bls/
+main

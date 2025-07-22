@@ -7,70 +7,108 @@ import (
 	"github.com/herumi/bls/ffi/go/bls"
 )
 
-func GenPolyCoefficient(threshold int) []bls.SecretKey {
-	coeffs_ai := make([]bls.SecretKey, threshold)
-	for i := 0; i < threshold; i++ {
-		coeffs_ai[i].SetByCSPRNG()
-	}
-	return coeffs_ai
+type Dkg struct {
+	t, n int
+	a0   bls.SecretKey
+	a0G  *bls.PublicKey
+	msk  []bls.SecretKey
+	mpk  []bls.PublicKey
+	id   bls.ID
 }
-func Hash2SecretKey(input []byte) (error, *bls.SecretKey) {
+
+func (d *Dkg) Set(t, n int) *Dkg {
+	d.t = t
+	d.n = n
+	d.a0.SetByCSPRNG()
+	//多项式系数
+	d.msk = d.a0.GetMasterSecretKey(t)
+	//多项式系数承诺
+	d.mpk = bls.GetMasterPublicKey(d.msk)
+	//a0对应的公钥
+	d.a0G = &d.mpk[0]
+	return d
+}
+func New(t, n int) *Dkg {
+	return new(Dkg).Set(t, n)
+}
+
+type Poof struct {
+	R *bls.PublicKey
+	u *bls.SecretKey
+}
+
+func (d *Dkg) GenProof() (*Poof, error) {
+	return ZkProof(&d.id, &d.a0, d.a0G)
+}
+
+//	func PolyCoeffCommitment(coeffs []bls.SecretKey) []bls.PublicKey {
+//		return bls.GetMasterPublicKey(coeffs)
+//	}
+//
+// func GenSecretShare(id *bls.ID, coeffs []bls.SecretKey) {
+//
+// }
+func Hash2SecretKey(input []byte) (*bls.SecretKey, error) {
+	H := sha256.New()
+	H.Write(input)
+	ret := H.Sum(nil)
 	var s bls.SecretKey
-	if err := s.SetLittleEndianMod(input); err != nil {
-		return err, nil
+	if err := s.SetLittleEndianMod(ret); err != nil {
+		return nil, err
 	}
-	return nil, &s
+	return &s, nil
 }
-func GetHashInput(id *bls.ID, pkConstTerm, comRi *bls.PublicKey) (error, []byte) {
+func GetHashInput(id *bls.ID, a0G, comRi *bls.PublicKey) ([]byte, error) {
 	var buf bytes.Buffer
 	_, err := buf.Write(id.Serialize())
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
-	_, err = buf.Write(pkConstTerm.Serialize())
+	_, err = buf.Write(a0G.Serialize())
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
 	_, err = buf.Write(comRi.Serialize())
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
-	return nil, buf.Bytes()
+	return buf.Bytes(), nil
 }
-func ZkProof(id *bls.ID, ai0 *bls.SecretKey) (err error, comRi *bls.PublicKey, ui *bls.SecretKey) {
+func ZkProof(id *bls.ID, a0 *bls.SecretKey, a0G *bls.PublicKey) (poof *Poof, err error) {
 	var k bls.SecretKey
 	k.SetByCSPRNG()
-	comRi = k.GetPublicKey()
-	pkConstTerm := ai0.GetPublicKey()
-	err, input := GetHashInput(id, pkConstTerm, comRi)
+	comRi := k.GetPublicKey()
+	input, err := GetHashInput(id, a0G, comRi)
 	if err != nil {
-		return err, nil, nil
+		return nil, err
 	}
-	err, ci := Hash2SecretKey(input)
+	ci, err := Hash2SecretKey(input)
 	if err != nil {
-		return err, nil, nil
+		return nil, err
 	}
-	out := SkMul(ai0, ci)
+	out := SkMul(a0, ci)
 	if out == nil {
-		return errors.New("SkMul error"), nil, nil
+		return nil, errors.New("SkMul error")
 	}
 	out.Add(&k)
 
-	return nil, comRi, out
+	return &Poof{R: comRi, u: out}, nil
 }
-func ZkVerify(id *bls.ID, pkConstTerm *bls.PublicKey, comRi *bls.PublicKey, ui *bls.SecretKey) (error, bool) {
-	err, input := GetHashInput(id, pkConstTerm, comRi)
+func ZkVerify(id *bls.ID, a0G *bls.PublicKey, poof *Poof) (bool, error) {
+	input, err := GetHashInput(id, a0G, poof.R)
 	if err != nil {
-		return err, false
+		return false, err
 	}
-	err, _ = Hash2SecretKey(input)
+	ci, err := Hash2SecretKey(input)
 	if err != nil {
-		return err, false
+		return false, err
 	}
-	//left := ui.GetPublicKey()
-	//rignt := ci.GetPublicKey()
-	//bls.SetDstG2()
-	return nil, false
+	left := poof.u.GetPublicKey()
+	// ci*PK
+	rignt := ScalarPK(ci, a0G)
+	rignt = PkNeg(rignt)
+	left.Add(rignt)
+	return left.IsEqual(poof.R), nil
 }
 func SkMul(sk1, sk2 *bls.SecretKey) (out *bls.SecretKey) {
 	var fr1, fr2 bls.Fr
@@ -85,9 +123,23 @@ func SkMul(sk1, sk2 *bls.SecretKey) (out *bls.SecretKey) {
 	return &res
 }
 
-// func PkNeg(pk *bls.PublicKey) *bls.PublicKey {
-//
-// }
+func PkNeg(pk *bls.PublicKey) *bls.PublicKey {
+	var g bls.G2
+	g.SetString(pk.GetHexString(), 16)
+	bls.G2Neg(&g, &g)
+	pk.SetHexString(g.GetString(16))
+	return pk
+}
+func ScalarPK(sk *bls.SecretKey, pk *bls.PublicKey) *bls.PublicKey {
+	var g, tmp bls.G2
+	var fr bls.Fr
+	g.SetString(pk.GetHexString(), 16)
+	fr.SetString(sk.GetHexString(), 16)
+	bls.G2Mul(&tmp, &g, &fr)
+	var ret bls.PublicKey
+	ret.SetHexString(tmp.GetString(16))
+	return &ret
+}
 func tmp() {
 	bls.Init(bls.BLS12_381)
 	//bls.

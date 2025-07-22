@@ -72,7 +72,7 @@ func main1() {
 	testReadRand()
 }
 
-func main() {
+func main2() {
 	bls.Init(bls.BLS12_381)
 	var sec bls.SecretKey
 	//sec.SetByCSPRNG()
@@ -104,5 +104,40 @@ func main() {
 	g1.SetString(pk1.GetHexString(), 16)
 	g2.SetString(pk2.GetHexString(), 16)
 	fmt.Printf("g1:%+v\ng2:%+v\n", g1.GetString(16), g2.GetString(16))
+	var out3 bls.G2
+	bls.G2Neg(&out3, &g2)
+	var pk3 bls.PublicKey
+	pk3.SetHexString(out3.GetString(16))
+	pk3.Add(pk2)
+	fg := pk3.IsZero()
+	fmt.Printf("fg:%+v\n", fg)
 
+}
+func testZkproof() {
+	var id bls.ID
+	id.SetDecString("10")
+	var ai0 bls.SecretKey
+	ai0.SetByCSPRNG()
+	a0G := ai0.GetPublicKey()
+	proof, err := frost.ZkProof(&id, &ai0, a0G)
+	if err != nil {
+		panic(err)
+	}
+	fg, err := frost.ZkVerify(&id, a0G, proof)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("zkproof verify fg:%+v\n", fg)
+}
+func testGetMasterPublicKey() {
+	var sk1, sk2 bls.SecretKey
+	sk1.SetDecString("2")
+	sk2.SetDecString("2")
+	pks := bls.GetMasterPublicKey([]bls.SecretKey{sk1, sk2})
+	fmt.Printf("%+v\n%+v\n", pks[0].GetHexString(), pks[1].GetHexString())
+}
+func main() {
+	bls.Init(bls.BLS12_381)
+	testZkproof()
+	testGetMasterPublicKey()
 }

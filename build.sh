@@ -21,6 +21,7 @@ compile_bls_lib(){
 compile_frost_lib(){
   LD_LIBRARY_PATH=${pwd}/out/lib CGO_CFLAGS="-I${pwd}/out/include"\
    CGO_LDFLAGS="-lbls384_256 -lmcl -L${pwd}/out/lib -lstdc++" go run cmd/main.go
+#  LD_LIBRARY_PATH=${pwd}/out/lib time ./main
 }
 param=$1
 run(){
