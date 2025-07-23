@@ -147,7 +147,7 @@ func testID() {
 }
 func main() {
 	bls.Init(bls.BLS12_381)
-	testZkproof()
-	testGetMasterPublicKey()
-	testID()
+	//testZkproof()
+	//testGetMasterPublicKey()
+	//testID()
 }

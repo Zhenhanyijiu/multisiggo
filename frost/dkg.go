@@ -28,15 +28,20 @@ func GetIDType(index, n int) *IDType {
 }
 
 type Dkg struct {
-	t, n    int
-	a0      bls.SecretKey
-	a0G     *bls.PublicKey
-	msk     []bls.SecretKey
-	mpk     []bls.PublicKey
-	id      bls.ID
-	ids     []bls.ID
-	index   int
-	myShare *bls.SecretKey
+	t, n        int
+	a0          bls.SecretKey
+	a0G         *bls.PublicKey
+	msk         []bls.SecretKey
+	mpk         []bls.PublicKey
+	id          bls.ID
+	ids         []bls.ID
+	index       int
+	myShare     *bls.SecretKey
+	signPrivKey bls.SecretKey
+	signPubKey  *bls.PublicKey
+	Commitments [][]bls.PublicKey //n个承诺向量
+	signPubKeys []bls.PublicKey
+	groupPubKey bls.PublicKey
 }
 
 func (d *Dkg) Set(t, n int, idType *IDType) *Dkg {
@@ -52,6 +57,9 @@ func (d *Dkg) Set(t, n int, idType *IDType) *Dkg {
 	d.index = idType.index
 	d.ids = idType.ids
 	d.id = d.ids[d.index]
+	d.Commitments = make([][]bls.PublicKey, d.n)
+	d.Commitments[d.index] = d.mpk
+	d.signPubKeys = make([]bls.PublicKey, d.n)
 	return d
 }
 func New(t, n int, idType *IDType) *Dkg {
@@ -66,6 +74,9 @@ type Poof struct {
 func (d *Dkg) GenProof() (*Poof, error) {
 	return ZkProof(&d.id, &d.a0, d.a0G)
 }
+func (d *Dkg) SaveCommitment(fromIndex int, fromMpk []bls.PublicKey) {
+	d.Commitments[fromIndex] = fromMpk
+}
 
 func (d *Dkg) GenSecretShare() []bls.SecretKey {
 	// f(id1,id2,id3...)
@@ -74,16 +85,44 @@ func (d *Dkg) GenSecretShare() []bls.SecretKey {
 		shares[i].Set(d.msk, &d.ids[i])
 	}
 	d.myShare = &shares[d.index]
-	return nil
+	return shares
 }
 
-//	func PolyCoeffCommitment(coeffs []bls.SecretKey) []bls.PublicKey {
-//		return bls.GetMasterPublicKey(coeffs)
-//	}
-//
-// func GenSecretShare(id *bls.ID, coeffs []bls.SecretKey) {
-//
-// }
+func VerifySecretShare(fromId *bls.ID, fromShare *bls.SecretKey, fromMpk []bls.PublicKey) bool {
+	pk := fromShare.GetPublicKey()
+	var pkCheck bls.PublicKey
+	pkCheck.Set(fromMpk, fromId)
+	return pk.IsEqual(&pkCheck)
+}
+
+func (d *Dkg) AddSecretShare(fromShare *bls.SecretKey) {
+	d.signPrivKey.Add(fromShare)
+}
+func (d *Dkg) GenSignKey() {
+	d.signPrivKey.Add(d.myShare)
+	d.signPubKey = d.signPrivKey.GetPublicKey()
+	//计算所有参与者的验证公钥
+	for i := 0; i < d.n; i++ {
+		//计算 Pi 的验证公钥,自己的无需再计算
+		if i != d.index {
+			for j := 0; j < d.n; j++ {
+				var tmp bls.PublicKey
+				tmp.Set(d.Commitments[j], &d.ids[i])
+				d.signPubKeys[i].Add(&tmp)
+			}
+		}
+	}
+	d.signPubKeys[d.index] = *d.signPubKey
+	//	阈值组验证公钥
+	for i := 0; i < d.n; i++ {
+		d.groupPubKey.Add(&d.Commitments[i][0])
+	}
+
+	//fmt.Printf("-------- GenSignKey,index:%+v\n", d.index)
+	//for i := 0; i < d.n; i++ {
+	//	fmt.Printf("d.signPubKeys[%+v]:%+v\n", i, d.signPubKeys[i].GetHexString())
+	//}
+}
 func Hash2SecretKey(input []byte) (*bls.SecretKey, error) {
 	H := sha256.New()
 	H.Write(input)
@@ -175,9 +214,4 @@ func ScalarPK(sk *bls.SecretKey, pk *bls.PublicKey) *bls.PublicKey {
 	var ret bls.PublicKey
 	ret.SetHexString(tmp.GetString(16))
 	return &ret
-}
-func tmp() {
-	bls.Init(bls.BLS12_381)
-	//bls.
-	sha256.New()
 }
