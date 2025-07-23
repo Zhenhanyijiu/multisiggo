@@ -141,13 +141,22 @@ func testID() {
 	id.SetDecString("123")
 	fmt.Printf("id dec:%+v,hex:%+v\n", id.GetDecString(), id.GetHexString())
 	for i := 0; i < 10; i++ {
-		frost.GetIDType(i, 10)
+		frost.GetIDList(i, 10)
 		fmt.Println()
 	}
+}
+
+func test2() {
+	mp := make(map[int]string)
+	fmt.Printf("mp[0]:%+v\n", len(mp[0]))
+	mp[0] = "uuu "
+	fmt.Printf("mp[0]:%+v\n", mp[0])
 }
 func main() {
 	bls.Init(bls.BLS12_381)
 	//testZkproof()
 	//testGetMasterPublicKey()
 	//testID()
+	frost.TtestFrLagrangeInterpolation()
+	//test2()
 }

@@ -9,17 +9,17 @@ import (
 	"strconv"
 )
 
-type IDType struct {
+type IDList struct {
 	index int
 	ids   []bls.ID
 }
 
-func GetIDType(index, n int) *IDType {
+func GetIDList(index, n int) *IDList {
 	ids := make([]bls.ID, n)
 	for i := 0; i < n; i++ {
 		ids[i].SetDecString(strconv.Itoa(1 + i))
 	}
-	ret := &IDType{index: index, ids: ids}
+	ret := &IDList{index: index, ids: ids}
 	fmt.Printf("------ index:%+v\n", ret.index)
 	for i := 0; i < n; i++ {
 		fmt.Printf("ids[%+v]:%+v\n", i, ret.ids[i].GetDecString())
@@ -41,10 +41,11 @@ type Dkg struct {
 	signPubKey  *bls.PublicKey
 	Commitments [][]bls.PublicKey //n个承诺向量
 	signPubKeys []bls.PublicKey
-	groupPubKey bls.PublicKey
+	grpPubKey   bls.PublicKey
+	e, d        []bls.SecretKey //最多签名次数
 }
 
-func (d *Dkg) Set(t, n int, idType *IDType) *Dkg {
+func (d *Dkg) Set(t, n int, idlist *IDList) *Dkg {
 	d.t = t
 	d.n = n
 	d.a0.SetByCSPRNG()
@@ -54,16 +55,16 @@ func (d *Dkg) Set(t, n int, idType *IDType) *Dkg {
 	d.mpk = bls.GetMasterPublicKey(d.msk)
 	//a0对应的公钥
 	d.a0G = &d.mpk[0]
-	d.index = idType.index
-	d.ids = idType.ids
+	d.index = idlist.index
+	d.ids = idlist.ids
 	d.id = d.ids[d.index]
 	d.Commitments = make([][]bls.PublicKey, d.n)
 	d.Commitments[d.index] = d.mpk
 	d.signPubKeys = make([]bls.PublicKey, d.n)
 	return d
 }
-func New(t, n int, idType *IDType) *Dkg {
-	return new(Dkg).Set(t, n, idType)
+func New(t, n int, idlist *IDList) *Dkg {
+	return new(Dkg).Set(t, n, idlist)
 }
 
 type Poof struct {
@@ -115,7 +116,7 @@ func (d *Dkg) GenSignKey() {
 	d.signPubKeys[d.index] = *d.signPubKey
 	//	阈值组验证公钥
 	for i := 0; i < d.n; i++ {
-		d.groupPubKey.Add(&d.Commitments[i][0])
+		d.grpPubKey.Add(&d.Commitments[i][0])
 	}
 
 	//fmt.Printf("-------- GenSignKey,index:%+v\n", d.index)

@@ -13,13 +13,13 @@ func init() {
 func TestDkg_Set(t *testing.T) {
 	assert.True(t, true)
 	var dkg Dkg
-	ret := dkg.Set(2, 3, GetIDType(0, 3))
+	ret := dkg.Set(2, 3, GetIDList(0, 3))
 	assert.NotNil(t, ret)
 	assert.Equal(t, 0, ret.index)
 }
 
 func TestNew(t *testing.T) {
-	ret := New(7, 13, GetIDType(2, 13))
+	ret := New(7, 13, GetIDList(2, 13))
 	assert.NotNil(t, ret)
 	assert.Equal(t, 2, ret.index)
 }
@@ -97,7 +97,7 @@ func TestDkg_GenSecretShare(t *testing.T) {
 	th, n := 3, 5
 	dkgs := make([]Dkg, n)
 	for i := 0; i < n; i++ {
-		dkgs[i].Set(th, n, GetIDType(i, n))
+		dkgs[i].Set(th, n, GetIDList(i, n))
 		assert.Equal(t, n, dkgs[i].n)
 		assert.Equal(t, th, dkgs[i].t)
 	}
@@ -119,7 +119,7 @@ func TestDkgProtocol(t *testing.T) {
 	dkgs := make([]Dkg, n)
 	//每个参与者生成多项式
 	for i := 0; i < n; i++ {
-		dkgs[i].Set(th, n, GetIDType(i, n))
+		dkgs[i].Set(th, n, GetIDList(i, n))
 		assert.Equal(t, n, dkgs[i].n)
 		assert.Equal(t, th, dkgs[i].t)
 	}
@@ -173,7 +173,7 @@ func TestDkgProtocol(t *testing.T) {
 				assert.True(t, fg)
 			}
 		}
-		assert.True(t, dkgs[0].groupPubKey.IsEqual(&dkgs[i].groupPubKey))
+		assert.True(t, dkgs[0].grpPubKey.IsEqual(&dkgs[i].grpPubKey))
 	}
 	// recover
 	S := []int{0, 1, 3, 4}
@@ -182,11 +182,11 @@ func TestDkgProtocol(t *testing.T) {
 	err := groupSk.Recover(sks, ids)
 	assert.NoError(t, err)
 	grpPk := groupSk.GetPublicKey()
-	assert.True(t, grpPk.IsEqual(&dkgs[0].groupPubKey))
+	assert.True(t, grpPk.IsEqual(&dkgs[0].grpPubKey))
 	var grpPk_ bls.PublicKey
 	err = grpPk_.Recover(pks, ids)
 	assert.NoError(t, err)
-	assert.True(t, grpPk_.IsEqual(&dkgs[0].groupPubKey), "not ok")
+	assert.True(t, grpPk_.IsEqual(&dkgs[0].grpPubKey), "not ok")
 }
 func genid(set []int, dkgs []Dkg) ([]bls.ID, []bls.SecretKey, []bls.PublicKey) {
 	var sks []bls.SecretKey
