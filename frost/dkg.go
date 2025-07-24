@@ -1,7 +1,6 @@
 package frost
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -41,7 +40,7 @@ type Dkg struct {
 	sigPubKey   *bls.PublicKey
 	Commitments [][]bls.PublicKey //n个承诺向量
 	sigPubKeys  []bls.PublicKey
-	grpPubKey   bls.PublicKey
+	grpPubKey   *bls.PublicKey
 	e, d        []bls.SecretKey //最多签名次数
 }
 
@@ -60,7 +59,6 @@ func (d *Dkg) Set(t, n int, idlist *IDList) *Dkg {
 	d.id = d.ids[d.index]
 	d.Commitments = make([][]bls.PublicKey, d.n)
 	d.Commitments[d.index] = d.mpk
-	d.sigPubKeys = make([]bls.PublicKey, d.n)
 	return d
 }
 func NewDKG(t, n int, idlist *IDList) *Dkg {
@@ -99,69 +97,71 @@ func VerifySecretShare(fromId *bls.ID, fromShare *bls.SecretKey, fromMpk []bls.P
 func (d *Dkg) AddSecretShare(fromShare *bls.SecretKey) {
 	d.sigPrivKey.Add(fromShare)
 }
+
+// 计算(calculate)所有其他节点的验证公钥，自己的不计算
+func CalSigPubKeys(selfNdx int, ids []bls.ID, Commitments [][]bls.PublicKey) []bls.PublicKey {
+	//计算所有其他参与者的验证公钥,
+	n := len(ids)
+	sigPubKeys := make([]bls.PublicKey, n)
+	for i := 0; i < n; i++ {
+		//计算 Pi 的验证公钥,自己的无需再计算
+		if i != selfNdx {
+			for j := 0; j < n; j++ {
+				var tmp bls.PublicKey
+				tmp.Set(Commitments[j], &ids[i])
+				sigPubKeys[i].Add(&tmp)
+			}
+		}
+	}
+	return sigPubKeys
+}
 func (d *Dkg) GenSignKey() {
 	d.sigPrivKey.Add(d.selfShare)
 	d.sigPubKey = d.sigPrivKey.GetPublicKey()
 	//计算所有参与者的验证公钥
-	for i := 0; i < d.n; i++ {
-		//计算 Pi 的验证公钥,自己的无需再计算
-		if i != d.index {
-			for j := 0; j < d.n; j++ {
-				var tmp bls.PublicKey
-				tmp.Set(d.Commitments[j], &d.ids[i])
-				d.sigPubKeys[i].Add(&tmp)
-			}
-		}
-	}
+	//for i := 0; i < d.n; i++ {
+	//	//计算 Pi 的验证公钥,自己的无需再计算
+	//	if i != d.index {
+	//		for j := 0; j < d.n; j++ {
+	//			var tmp bls.PublicKey
+	//			tmp.Set(d.Commitments[j], &d.ids[i])
+	//			d.sigPubKeys[i].Add(&tmp)
+	//		}
+	//	}
+	//}
+	d.sigPubKeys = CalSigPubKeys(d.index, d.ids, d.Commitments)
 	d.sigPubKeys[d.index] = *d.sigPubKey
 	//	阈值组验证公钥
-	for i := 0; i < d.n; i++ {
-		d.grpPubKey.Add(&d.Commitments[i][0])
-	}
-
-	//fmt.Printf("-------- GenSignKey,index:%+v\n", d.index)
-	//for i := 0; i < d.n; i++ {
-	//	fmt.Printf("d.signPubKeys[%+v]:%+v\n", i, d.signPubKeys[i].GetHexString())
-	//}
+	d.grpPubKey = CalGrpPubKey(d.Commitments)
 }
-func Hash2SecretKey(input []byte) (*bls.SecretKey, error) {
+func CalGrpPubKey(Commitments [][]bls.PublicKey) *bls.PublicKey {
+	n := len(Commitments)
+	var grpPubKey bls.PublicKey
+	for i := 0; i < n; i++ {
+		grpPubKey.Add(&Commitments[i][0])
+	}
+	return &grpPubKey
+}
+func Hash2SecretKey(id *bls.ID, a0G, comRi *bls.PublicKey) *bls.SecretKey {
 	H := sha256.New()
-	H.Write(input)
+	H.Write(id.Serialize())
+	H.Write(a0G.Serialize())
+	H.Write(comRi.Serialize())
 	ret := H.Sum(nil)
 	var s bls.SecretKey
 	if err := s.SetLittleEndianMod(ret); err != nil {
-		return nil, err
+		return nil
 	}
-	//fmt.Printf("+++++++++++ %+v\n", s.GetDecString())
-	return &s, nil
+	return &s
 }
-func GetHashInput(id *bls.ID, a0G, comRi *bls.PublicKey) ([]byte, error) {
-	var buf bytes.Buffer
-	_, err := buf.Write(id.Serialize())
-	if err != nil {
-		return nil, err
-	}
-	_, err = buf.Write(a0G.Serialize())
-	if err != nil {
-		return nil, err
-	}
-	_, err = buf.Write(comRi.Serialize())
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
+
 func ZkProof(id *bls.ID, a0 *bls.SecretKey, a0G *bls.PublicKey) (poof *Poof, err error) {
 	var k bls.SecretKey
 	k.SetByCSPRNG()
 	comRi := k.GetPublicKey()
-	input, err := GetHashInput(id, a0G, comRi)
-	if err != nil {
-		return nil, err
-	}
-	ci, err := Hash2SecretKey(input)
-	if err != nil {
-		return nil, err
+	ci := Hash2SecretKey(id, a0G, comRi)
+	if ci == nil {
+		return nil, fmt.Errorf("ci is nil")
 	}
 	out := SkMul(a0, ci)
 	if out == nil {
@@ -171,14 +171,10 @@ func ZkProof(id *bls.ID, a0 *bls.SecretKey, a0G *bls.PublicKey) (poof *Poof, err
 
 	return &Poof{R: comRi, u: out}, nil
 }
-func ZkVerify(id *bls.ID, a0G *bls.PublicKey, poof *Poof) (bool, error) {
-	input, err := GetHashInput(id, a0G, poof.R)
-	if err != nil {
-		return false, err
-	}
-	ci, err := Hash2SecretKey(input)
-	if err != nil {
-		return false, err
+func ZkVerify(id *bls.ID, a0G *bls.PublicKey, prf *Poof) (bool, error) {
+	ci := Hash2SecretKey(id, a0G, prf.R)
+	if ci == nil {
+		return false, fmt.Errorf("ci si nil")
 	}
 	//left := poof.u.GetPublicKey()
 	//// ci*PK
@@ -186,7 +182,7 @@ func ZkVerify(id *bls.ID, a0G *bls.PublicKey, poof *Poof) (bool, error) {
 	//rignt = PkNeg(rignt)
 	//left.Add(rignt)
 	//return left.IsEqual(poof.R), nil
-	fg := IsValid(poof.R, a0G, poof.u, ci)
+	fg := IsValid(prf.R, a0G, prf.u, ci)
 	if fg {
 		return fg, nil
 
@@ -223,4 +219,10 @@ func ScalarPK(sk *bls.SecretKey, pk *bls.PublicKey) *bls.PublicKey {
 	var ret bls.PublicKey
 	ret.SetHexString(tmp.GetString(16))
 	return &ret
+}
+func IsValid(R, Y *bls.PublicKey, u, c *bls.SecretKey) bool {
+	left := u.GetPublicKey()
+	right := ScalarPK(c, Y)
+	right.Add(R)
+	return left.IsEqual(right)
 }

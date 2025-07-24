@@ -50,7 +50,6 @@ func dkgProtocol(t *testing.T, th, n int) []Dkg {
 				fmt.Printf("--------- p%+v=>p%+v f%+v(%+v)\n", i, j, i, dkgs[j].id.GetDecString())
 				dkgs[j].AddSecretShare(&shares[j])
 			}
-
 		}
 		fmt.Println()
 	}
@@ -66,7 +65,7 @@ func dkgProtocol(t *testing.T, th, n int) []Dkg {
 				assert.True(t, fg)
 			}
 		}
-		assert.True(t, dkgs[0].grpPubKey.IsEqual(&dkgs[i].grpPubKey))
+		assert.True(t, dkgs[0].grpPubKey.IsEqual(dkgs[i].grpPubKey))
 	}
 
 	return dkgs
@@ -75,7 +74,7 @@ func TestSA(t *testing.T) {
 	th, n := 2, 3
 	dkgs := dkgProtocol(t, th, n)
 	assert.Equal(t, n, len(dkgs))
-	sa := NewSA(th, n, &dkgs[0].grpPubKey, dkgs[0].sigPubKeys)
+	sa := NewSA(th, n, dkgs[0].grpPubKey, dkgs[0].sigPubKeys)
 	//	签名预处理
 	counters := 10
 	for i := 0; i < n; i++ {

@@ -77,12 +77,6 @@ type Sign struct {
 	z     *bls.SecretKey
 }
 
-func IsValid(R, Y *bls.PublicKey, u, c *bls.SecretKey) bool {
-	left := u.GetPublicKey()
-	right := ScalarPK(c, Y)
-	right.Add(R)
-	return left.IsEqual(right)
-}
 func (s *SA) SignAgg(ss *SignerSet, ziList []*Sign) (*Sign, error) {
 	mBbyte := ss.GetBytes()
 	var grpComR bls.PublicKey
@@ -178,7 +172,7 @@ func (d *Dkg) Sign(ss *SignerSet) *Sign {
 		CRi[index] = comRi
 		grpComR.Add(comRi)
 	}
-	c := H2(ss.m, &grpComR, &d.grpPubKey)
+	c := H2(ss.m, &grpComR, d.grpPubKey)
 	fmt.Printf("dkg chall:%+v\n", c.GetDecString())
 	myRho := H1(&d.id, ssBytes)
 	zi := SkMul(myRho, &d.e[ss.signCounter-1]) //从0开始
