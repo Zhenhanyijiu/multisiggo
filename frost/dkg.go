@@ -98,7 +98,7 @@ func (d *Dkg) AddSecretShare(fromShare *bls.SecretKey) {
 	d.sigPrivKey.Add(fromShare)
 }
 
-// 计算(calculate)所有其他节点的验证公钥，自己的不计算
+// 如果0<=selFNdx<n计算(calculate)所有其他节点的验证公钥，自己的不计算,否则计算所有
 func CalSigPubKeys(selfNdx int, ids []bls.ID, Commitments [][]bls.PublicKey) []bls.PublicKey {
 	//计算所有其他参与者的验证公钥,
 	n := len(ids)
@@ -119,16 +119,6 @@ func (d *Dkg) GenSignKey() {
 	d.sigPrivKey.Add(d.selfShare)
 	d.sigPubKey = d.sigPrivKey.GetPublicKey()
 	//计算所有参与者的验证公钥
-	//for i := 0; i < d.n; i++ {
-	//	//计算 Pi 的验证公钥,自己的无需再计算
-	//	if i != d.index {
-	//		for j := 0; j < d.n; j++ {
-	//			var tmp bls.PublicKey
-	//			tmp.Set(d.Commitments[j], &d.ids[i])
-	//			d.sigPubKeys[i].Add(&tmp)
-	//		}
-	//	}
-	//}
 	d.sigPubKeys = CalSigPubKeys(d.index, d.ids, d.Commitments)
 	d.sigPubKeys[d.index] = *d.sigPubKey
 	//	阈值组验证公钥
@@ -163,34 +153,25 @@ func ZkProof(id *bls.ID, a0 *bls.SecretKey, a0G *bls.PublicKey) (poof *Poof, err
 	if ci == nil {
 		return nil, fmt.Errorf("ci is nil")
 	}
-	out := SkMul(a0, ci)
-	if out == nil {
+	u := SkMul(a0, ci)
+	if u == nil {
 		return nil, errors.New("SkMul error")
 	}
-	out.Add(&k)
-
-	return &Poof{R: comRi, u: out}, nil
+	u.Add(&k)
+	return &Poof{R: comRi, u: u}, nil
 }
 func ZkVerify(id *bls.ID, a0G *bls.PublicKey, prf *Poof) (bool, error) {
 	ci := Hash2SecretKey(id, a0G, prf.R)
 	if ci == nil {
 		return false, fmt.Errorf("ci si nil")
 	}
-	//left := poof.u.GetPublicKey()
-	//// ci*PK
-	//rignt := ScalarPK(ci, a0G)
-	//rignt = PkNeg(rignt)
-	//left.Add(rignt)
-	//return left.IsEqual(poof.R), nil
 	fg := IsValid(prf.R, a0G, prf.u, ci)
 	if fg {
 		return fg, nil
-
 	}
-
 	return false, fmt.Errorf("ZkVerify error")
 }
-func SkMul(sk1, sk2 *bls.SecretKey) (out *bls.SecretKey) {
+func SkMul(sk1, sk2 *bls.SecretKey) *bls.SecretKey {
 	var fr1, fr2 bls.Fr
 	fr1.SetString(sk1.GetDecString(), 10)
 	fr2.SetString(sk2.GetDecString(), 10)

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"github.com/herumi/bls/ffi/go/bls"
-	"strconv"
 )
 
 type DEList struct {
@@ -14,12 +13,12 @@ type DEList struct {
 	E, D  []bls.PublicKey
 }
 
-func (d *Dkg) Preprocess(n int) *DEList {
-	d.e = make([]bls.SecretKey, n)
-	d.d = make([]bls.SecretKey, n)
-	E := make([]bls.PublicKey, n)
-	D := make([]bls.PublicKey, n)
-	for i := 0; i < n; i++ {
+func (d *Dkg) Preprocess(sigMax int) *DEList {
+	d.e = make([]bls.SecretKey, sigMax)
+	d.d = make([]bls.SecretKey, sigMax)
+	E := make([]bls.PublicKey, sigMax)
+	D := make([]bls.PublicKey, sigMax)
+	for i := 0; i < sigMax; i++ {
 		d.e[i].SetByCSPRNG()
 		d.d[i].SetByCSPRNG()
 		E[i] = *d.e[i].GetPublicKey()
@@ -36,16 +35,16 @@ type SA struct {
 	sigPubkeys []bls.PublicKey //todo:
 }
 
-func (s *SA) Set(t, n int, grpPubKey *bls.PublicKey, sigPubkeys []bls.PublicKey) *SA {
+func (s *SA) Set(t int, ids []bls.ID, Commitments [][]bls.PublicKey) *SA {
 	s.t = t
-	s.n = n
-	s.deLists = make([]*DEList, n)
-	s.sigPubkeys = sigPubkeys
-	s.grpPubKey = grpPubKey
+	s.n = len(ids)
+	s.deLists = make([]*DEList, s.n)
+	s.sigPubkeys = CalSigPubKeys(-1, ids, Commitments)
+	s.grpPubKey = CalGrpPubKey(Commitments)
 	return s
 }
-func NewSA(t, n int, grpPubKey *bls.PublicKey, sigPubkeys []bls.PublicKey) *SA {
-	return new(SA).Set(t, n, grpPubKey, sigPubkeys)
+func NewSA(t int, ids []bls.ID, Commitments [][]bls.PublicKey) *SA {
+	return new(SA).Set(t, ids, Commitments)
 }
 func (s *SA) SaveDElist(index int, deList *DEList) {
 	s.deLists[index] = deList
@@ -88,24 +87,20 @@ func (s *SA) SignAgg(ss *SignerSet, ziList []*Sign) (*Sign, error) {
 		RiList[index] = Ri_
 	}
 	challenge := H2(ss.m, &grpComR, s.grpPubKey)
-	fmt.Printf("sa  chall:%+v\n", challenge.GetDecString())
+	//fmt.Printf("sa  chall:%+v\n", challenge.GetDecString())
 	for _, sign := range ziList {
 		lambda := LagrangeCoefficient(sign.index, ss)
-		fmt.Printf("zi %+v,lambda:%+v\n", sign.index, lambda.GetDecString())
+		//fmt.Printf("zi %+v,lambda:%+v\n", sign.index, lambda.GetDecString())
 		lambda = SkMul(lambda, challenge)
 		ok := IsValid(RiList[sign.index], &s.sigPubkeys[sign.index], sign.z, lambda)
 		if !ok {
 			return nil, fmt.Errorf("not valid")
 		}
 	}
-	fmt.Printf("---------------------------------------- 1\n")
 	var z bls.SecretKey
 	for _, sign := range ziList {
 		z.Add(sign.z)
 	}
-	fmt.Printf("---------------------------------------- 2\n")
-
-	//chack
 	return &Sign{index: -1, R: &grpComR, z: &z}, nil
 }
 
@@ -166,30 +161,18 @@ func (d *Dkg) Sign(ss *SignerSet) *Sign {
 	CRi := map[int]*bls.PublicKey{}
 	for _, index := range ss.indexSet {
 		rho := H1(dict[index].id, ssBytes)
-		//pk := ScalarPK(rho, dict[ss.indexSet[i]].E)
-		//pk.Add(dict[ss.indexSet[i]].D)
 		comRi := Ri(dict[index].D, dict[index].E, rho)
 		CRi[index] = comRi
 		grpComR.Add(comRi)
 	}
 	c := H2(ss.m, &grpComR, d.grpPubKey)
-	fmt.Printf("dkg chall:%+v\n", c.GetDecString())
 	myRho := H1(&d.id, ssBytes)
 	zi := SkMul(myRho, &d.e[ss.signCounter-1]) //从0开始
 	zi.Add(&d.d[ss.signCounter-1])
 	lambda := LagrangeCoefficient(d.index, ss)
-	fmt.Printf("dkg %+v,lambda:%+v\n", d.index, lambda.GetDecString())
 	out := SkMul(&d.sigPrivKey, lambda)
 	out = SkMul(out, c)
 	zi.Add(out)
-	///////////////
-	c2 := SkMul(c, lambda)
-	fg := IsValid(CRi[d.index], d.sigPubKey, zi, c2)
-	if fg {
-		fmt.Printf("====== ooooooooooooooooook\n")
-	} else {
-		panic("=====  errrrrrrrrrrrrr\nr")
-	}
 	return &Sign{index: d.index, R: nil, z: zi}
 }
 
@@ -214,44 +197,8 @@ func LagrangeCoefficient(index int, ss *SignerSet) *bls.SecretKey {
 	lambda.SetDecString(a1.GetString(10))
 	return &lambda
 }
-func SAVerify(ss *SignerSet) {
-
-}
-func TtestFrLagrangeInterpolation() {
-	var out, x1, x2, x3, y1, y2, y3 bls.Fr
-	x1.SetString("1", 10)
-	x2.SetString("2", 10)
-	x3.SetString("3", 10)
-	y1.SetString("4", 10)
-	y2.SetString("8", 10)
-	y3.SetString("14", 10)
-	bls.FrLagrangeInterpolation(&out, []bls.Fr{x1, x2, x3}, []bls.Fr{y1, y2, y3})
-	fmt.Printf("f(0):%+v\n", out.GetString(10))
-	//
-	ids := make([]bls.ID, 4)
-	for i := 0; i < 4; i++ {
-		ids[i].SetDecString(strconv.Itoa(1 + i))
-		fmt.Printf("== i:%+v\n", ids[i].GetDecString())
-	}
-	signer := SignerSet{
-		indexSet: []int{0, 1, 2, 3},
-		dEUsing:  map[int]*iDDE{},
-		//deShare:  map[int]*idDE{0: &idDE{id: &ids[0]}, 1: &idDE{id: &ids[1]}, 2: &idDE{id: &ids[2]}},
-	}
-	for _, index := range signer.indexSet {
-		signer.dEUsing[index] = &iDDE{id: &ids[index]}
-	}
-	lambda := LagrangeCoefficient(0, &signer)
-	fmt.Printf("lambda:%+v\n", lambda.GetDecString())
-
-	var xx, xx2, out2 bls.Fr
-	//|G2|=52435875175126190479447740508185965837690552500527637822603658699938581184513
-	//     52435875175126190479447740508185965837690552500527637822603658699938581184512
-	xx.SetString("52435875175126190479447740508185965837690552500527637822603658699938581184510", 10)
-	xx2.SetInt64(3)
-	out2.SetInt64(77)
-	fmt.Printf("out2:%+v\n", out2.GetString(10))
-	bls.FrAdd(&out2, &xx, &xx2)
-	fmt.Printf("out2:%+v\n", out2.GetString(10))
+func VerifyAgg(m string, grpPubKey *bls.PublicKey, sign *Sign) bool {
+	c := H2(m, sign.R, grpPubKey)
+	return IsValid(sign.R, grpPubKey, sign.z, c)
 
 }

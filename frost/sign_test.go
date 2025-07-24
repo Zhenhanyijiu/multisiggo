@@ -71,29 +71,28 @@ func dkgProtocol(t *testing.T, th, n int) []Dkg {
 	return dkgs
 }
 func TestSA(t *testing.T) {
-	th, n := 2, 3
+	th, n := 3, 5
 	dkgs := dkgProtocol(t, th, n)
 	assert.Equal(t, n, len(dkgs))
-	sa := NewSA(th, n, dkgs[0].grpPubKey, dkgs[0].sigPubKeys)
+	sa := NewSA(th, dkgs[0].ids, dkgs[0].Commitments)
 	//	签名预处理
-	counters := 10
+	sigMaxTimes := 10
 	for i := 0; i < n; i++ {
-		delist := dkgs[i].Preprocess(counters)
+		delist := dkgs[i].Preprocess(sigMaxTimes)
 		assert.NotNil(t, delist)
 		assert.Equal(t, delist.index, dkgs[i].index)
 		assert.True(t, delist.id.IsEqual(&dkgs[i].id))
-		assert.Equal(t, counters, len(delist.D))
-		assert.Equal(t, counters, len(delist.E))
+		assert.Equal(t, sigMaxTimes, len(delist.D))
+		assert.Equal(t, sigMaxTimes, len(delist.E))
 		sa.SaveDElist(dkgs[i].index, delist)
 	}
 	//	create signer set for signature share
-	signerSet := sa.CreateSignerSet("frost", 1, []int{0, 1})
+	signerSet := sa.CreateSignerSet("frost", 1, []int{2, 3, 1})
 	assert.NotNil(t, signerSet)
 	assert.Equal(t, "frost", signerSet.m)
 	assert.Equal(t, 1, signerSet.signCounter)
 	var zis []*Sign
 	for _, index := range signerSet.indexSet {
-		fmt.Printf("--------- 签名者的 index:%+v\n", index)
 		sig := dkgs[index].Sign(signerSet)
 		assert.Equal(t, index, sig.index)
 		assert.Nil(t, sig.R)
@@ -101,38 +100,79 @@ func TestSA(t *testing.T) {
 	}
 	rz, err := sa.SignAgg(signerSet, zis)
 	assert.NoError(t, err)
-	c := H2(signerSet.m, rz.R, sa.grpPubKey)
-	fmt.Printf("c :%+v\n", c.GetDecString())
-	fg := IsValid(rz.R, sa.grpPubKey, rz.z, c)
+	fg := VerifyAgg(signerSet.m, sa.grpPubKey, rz)
 	assert.True(t, fg)
 }
 func TestLagrangeCoefficient(t *testing.T) {
-	var id1, id2, id3 bls.ID
-	var y1, y2, y3, out bls.SecretKey
+	// f(x)=2+x+x^2
+	var f0 bls.SecretKey
+	f0.SetDecString("2")
+	var id1, id2, id3, id4 bls.ID
+	var y1, y2, y3, y4, out bls.SecretKey
 	id1.SetDecString("1")
 	id2.SetDecString("2")
 	id3.SetDecString("3")
+	id4.SetDecString("4")
 	y1.SetDecString("4")
 	y2.SetDecString("8")
 	y3.SetDecString("14")
-	err := out.Recover([]bls.SecretKey{y1, y2, y3}, []bls.ID{id1, id2, id3})
+	y4.SetDecString("22")
+	err := out.Recover([]bls.SecretKey{y1, y2}, []bls.ID{id1, id2})
 	assert.NoError(t, err)
-	assert.Equal(t, "2", out.GetDecString())
-	ss := &SignerSet{indexSet: []int{0, 1, 2},
-		dEUsing: map[int]*iDDE{0: &iDDE{id: &id1}, 1: &iDDE{id: &id2}, 2: &iDDE{id: &id3}},
+	// 点太少，恢复不出来
+	assert.False(t, out.IsEqual(&f0))
+	err = out.Recover([]bls.SecretKey{y1, y2, y3}, []bls.ID{id1, id2, id3})
+	assert.NoError(t, err)
+	assert.True(t, out.IsEqual(&f0))
+	out.SetDecString("0")
+	err = out.Recover([]bls.SecretKey{y4, y2, y3}, []bls.ID{id4, id2, id3})
+	assert.NoError(t, err)
+	assert.True(t, out.IsEqual(&f0))
+	err = out.Recover([]bls.SecretKey{y4, y2, y3, y1}, []bls.ID{id4, id2, id3, id1})
+	assert.NoError(t, err)
+	assert.True(t, out.IsEqual(&f0))
+
+	ss := &SignerSet{indexSet: []int{3, 1, 2},
+		dEUsing: map[int]*iDDE{3: &iDDE{id: &id4}, 1: &iDDE{id: &id2}, 2: &iDDE{id: &id3}},
 	}
-	h1 := LagrangeCoefficient(0, ss)
+	h4 := LagrangeCoefficient(3, ss)
 	h2 := LagrangeCoefficient(1, ss)
 	h3 := LagrangeCoefficient(2, ss)
-	fmt.Printf("h1:%+v\n", h1.GetDecString())
-	fmt.Printf("h2:%+v\n", h2.GetDecString())
-	fmt.Printf("h3:%+v\n", h3.GetDecString())
+	fmt.Printf("h4:%+v\n", h4.GetDecString()) //3
+	fmt.Printf("h2:%+v\n", h2.GetDecString()) //6
+	fmt.Printf("h3:%+v\n", h3.GetDecString()) //-8
 
-	h101 := SkMul(h1, &y1)
+	h104 := SkMul(h4, &y4)
 	h102 := SkMul(h2, &y2)
 	h103 := SkMul(h3, &y3)
-	h101.Add(h102)
-	h101.Add(h103)
-	fmt.Printf("h101:%+v\n", h101.GetDecString())
+	h104.Add(h102)
+	h104.Add(h103)
+	assert.True(t, h104.IsEqual(&f0))
+
+}
+
+func TestFrLagrangeInterpolation(t *testing.T) {
+	// f(x)=2+x+x^2
+	var f0 bls.Fr
+	f0.SetInt64(2)
+	var out, x1, x2, x3, y1, y2, y3 bls.Fr
+	x1.SetString("1", 10)
+	x2.SetString("2", 10)
+	x3.SetString("3", 10)
+	y1.SetString("4", 10)
+	y2.SetString("8", 10)
+	y3.SetString("14", 10)
+	err := bls.FrLagrangeInterpolation(&out, []bls.Fr{x1, x2, x3}, []bls.Fr{y1, y2, y3})
+	assert.NoError(t, err)
+	assert.True(t, out.IsEqual(&f0))
+
+	var xx, xx2, out2 bls.Fr
+	//|G2|=52435875175126190479447740508185965837690552500527637822603658699938581184513
+	//     52435875175126190479447740508185965837690552500527637822603658699938581184512
+	xx.SetString("52435875175126190479447740508185965837690552500527637822603658699938581184510", 10) //-3
+	xx2.SetInt64(3)
+	out2.SetInt64(77)
+	bls.FrAdd(&out2, &xx, &xx2)
+	assert.True(t, out2.IsZero())
 
 }
