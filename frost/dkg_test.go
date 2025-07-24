@@ -125,7 +125,7 @@ func TestDkgProtocol(t *testing.T) {
 	}
 	//生成知识证明,广播承诺和知识证明
 	var prfs []*Poof
-	var coms [][]bls.PublicKey
+	var coms [][]bls.PublicKey //所有的commitment
 	for i := 0; i < n; i++ {
 		prf, err := dkgs[i].GenProof()
 		assert.NoError(t, err)
@@ -169,7 +169,7 @@ func TestDkgProtocol(t *testing.T) {
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
 			if j != i {
-				fg := dkgs[i].signPubKey.IsEqual(&dkgs[j].signPubKeys[i])
+				fg := dkgs[i].sigPubKey.IsEqual(&dkgs[j].sigPubKeys[i])
 				assert.True(t, fg)
 			}
 		}
@@ -193,9 +193,9 @@ func genid(set []int, dkgs []Dkg) ([]bls.ID, []bls.SecretKey, []bls.PublicKey) {
 	var ids []bls.ID
 	var pks []bls.PublicKey
 	for _, v := range set {
-		sks = append(sks, dkgs[v].signPrivKey)
+		sks = append(sks, dkgs[v].sigPrivKey)
 		ids = append(ids, dkgs[0].ids[v])
-		pks = append(pks, *dkgs[v].signPubKey)
+		pks = append(pks, *dkgs[v].sigPubKey)
 	}
 	return ids, sks, pks
 }

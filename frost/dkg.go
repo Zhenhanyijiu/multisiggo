@@ -36,11 +36,11 @@ type Dkg struct {
 	id          bls.ID
 	ids         []bls.ID
 	index       int
-	myShare     *bls.SecretKey
-	signPrivKey bls.SecretKey
-	signPubKey  *bls.PublicKey
+	selfShare   *bls.SecretKey
+	sigPrivKey  bls.SecretKey
+	sigPubKey   *bls.PublicKey
 	Commitments [][]bls.PublicKey //n个承诺向量
-	signPubKeys []bls.PublicKey
+	sigPubKeys  []bls.PublicKey
 	grpPubKey   bls.PublicKey
 	e, d        []bls.SecretKey //最多签名次数
 }
@@ -60,7 +60,7 @@ func (d *Dkg) Set(t, n int, idlist *IDList) *Dkg {
 	d.id = d.ids[d.index]
 	d.Commitments = make([][]bls.PublicKey, d.n)
 	d.Commitments[d.index] = d.mpk
-	d.signPubKeys = make([]bls.PublicKey, d.n)
+	d.sigPubKeys = make([]bls.PublicKey, d.n)
 	return d
 }
 func New(t, n int, idlist *IDList) *Dkg {
@@ -85,7 +85,7 @@ func (d *Dkg) GenSecretShare() []bls.SecretKey {
 	for i := 0; i < d.n; i++ {
 		shares[i].Set(d.msk, &d.ids[i])
 	}
-	d.myShare = &shares[d.index]
+	d.selfShare = &shares[d.index]
 	return shares
 }
 
@@ -97,11 +97,11 @@ func VerifySecretShare(fromId *bls.ID, fromShare *bls.SecretKey, fromMpk []bls.P
 }
 
 func (d *Dkg) AddSecretShare(fromShare *bls.SecretKey) {
-	d.signPrivKey.Add(fromShare)
+	d.sigPrivKey.Add(fromShare)
 }
 func (d *Dkg) GenSignKey() {
-	d.signPrivKey.Add(d.myShare)
-	d.signPubKey = d.signPrivKey.GetPublicKey()
+	d.sigPrivKey.Add(d.selfShare)
+	d.sigPubKey = d.sigPrivKey.GetPublicKey()
 	//计算所有参与者的验证公钥
 	for i := 0; i < d.n; i++ {
 		//计算 Pi 的验证公钥,自己的无需再计算
@@ -109,11 +109,11 @@ func (d *Dkg) GenSignKey() {
 			for j := 0; j < d.n; j++ {
 				var tmp bls.PublicKey
 				tmp.Set(d.Commitments[j], &d.ids[i])
-				d.signPubKeys[i].Add(&tmp)
+				d.sigPubKeys[i].Add(&tmp)
 			}
 		}
 	}
-	d.signPubKeys[d.index] = *d.signPubKey
+	d.sigPubKeys[d.index] = *d.sigPubKey
 	//	阈值组验证公钥
 	for i := 0; i < d.n; i++ {
 		d.grpPubKey.Add(&d.Commitments[i][0])

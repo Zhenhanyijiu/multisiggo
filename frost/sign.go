@@ -29,18 +29,22 @@ func (d *Dkg) Preprocess(n int) *DEList {
 }
 
 type SA struct {
-	t, n    int
-	deLists []*DEList
+	t, n       int
+	deLists    []*DEList
+	grpPubKey  *bls.PublicKey  //todo:
+	sigPubkeys []bls.PublicKey //todo:
 }
 
-func (s *SA) Set(t, n int) *SA {
+func (s *SA) Set(t, n int, grpPubKey *bls.PublicKey, sigPubkeys []bls.PublicKey) *SA {
 	s.t = t
 	s.n = n
 	s.deLists = make([]*DEList, n)
+	s.sigPubkeys = sigPubkeys
+	s.grpPubKey = grpPubKey
 	return s
 }
-func NewSA(t, n int) *SA {
-	return new(SA).Set(t, n)
+func NewSA(t, n int, grpPubKey *bls.PublicKey, sigPubkeys []bls.PublicKey) *SA {
+	return new(SA).Set(t, n, grpPubKey, sigPubkeys)
 }
 func (s *SA) SaveDElist(index int, deList *DEList) {
 	s.deLists[index] = deList
@@ -66,6 +70,43 @@ func (s *SA) CreateSignSet(m string, signCounter int, indexSet []int) *SignerSet
 	return &ret
 }
 
+type Sign struct {
+	index int
+	R     *bls.PublicKey
+	z     *bls.SecretKey
+}
+
+func IsValid(R, Y *bls.PublicKey, u, c *bls.SecretKey) bool {
+	left := u.GetPublicKey()
+	right := ScalarPK(c, Y)
+	right.Add(R)
+	return left.IsEqual(right)
+}
+func (s *SA) SignAgg(ss *SignerSet, ziList []*Sign) (*Sign, error) {
+	mBbyte := ss.GetBytes()
+	var grpComR bls.PublicKey
+	RiList := make(map[int]*bls.PublicKey)
+	for _, index := range ss.indexSet {
+		rho := H1(ss.dEUsing[index].id, mBbyte)
+		Ri_ := Ri(ss.dEUsing[index].D, ss.dEUsing[index].E, rho)
+		grpComR.Add(Ri_)
+		RiList[index] = Ri_
+	}
+	challenge := H2(ss.m, &grpComR, s.grpPubKey)
+	for _, sign := range ziList {
+		ok := IsValid(RiList[sign.index], &s.sigPubkeys[sign.index], sign.z, challenge)
+		if !ok {
+			return nil, fmt.Errorf("not valid")
+		}
+	}
+	var z bls.SecretKey
+	for _, sign := range ziList {
+		z.Add(sign.z)
+	}
+	//chack
+	return &Sign{index: -1, R: nil, z: &z}, nil
+}
+
 type iDDE struct {
 	id   *bls.ID
 	D, E *bls.PublicKey
@@ -85,10 +126,10 @@ func (d *Dkg) Check(setSign []int, ss *SignerSet, dElist []*DEList) {
 func (ss *SignerSet) GetBytes() []byte {
 	var buf bytes.Buffer
 	buf.WriteString(ss.m)
-	for i := 0; i < len(ss.indexSet); i++ {
-		buf.Write(ss.dEUsing[ss.indexSet[i]].id.GetLittleEndian())
-		buf.Write(ss.dEUsing[ss.indexSet[i]].D.Serialize())
-		buf.Write(ss.dEUsing[ss.indexSet[i]].E.Serialize())
+	for _, index := range ss.indexSet {
+		buf.Write(ss.dEUsing[index].id.GetLittleEndian())
+		buf.Write(ss.dEUsing[index].D.Serialize())
+		buf.Write(ss.dEUsing[index].E.Serialize())
 	}
 	return buf.Bytes()
 }
@@ -110,26 +151,31 @@ func H2(m string, grpR *bls.PublicKey, grpPk *bls.PublicKey) *bls.SecretKey {
 	c.SetLittleEndianMod(ret)
 	return &c
 }
-
-func (d *Dkg) Sign(ss *SignerSet) (*bls.PublicKey, *bls.SecretKey) {
+func Ri(D, E *bls.PublicKey, rho *bls.SecretKey) *bls.PublicKey {
+	pk := ScalarPK(rho, E)
+	pk.Add(D)
+	return pk
+}
+func (d *Dkg) Sign(ss *SignerSet) *Sign {
 	var grpComR bls.PublicKey
 	ssBytes := ss.GetBytes()
 	dict := ss.dEUsing
-	for i := 0; i < len(ss.indexSet); i++ {
-		pho := H1(dict[ss.indexSet[i]].id, ssBytes)
-		pk := ScalarPK(pho, dict[ss.indexSet[i]].E)
-		pk.Add(dict[ss.indexSet[i]].D)
-		grpComR.Add(pk)
+	for _, index := range ss.indexSet {
+		rho := H1(dict[index].id, ssBytes)
+		//pk := ScalarPK(rho, dict[ss.indexSet[i]].E)
+		//pk.Add(dict[ss.indexSet[i]].D)
+		comRi := Ri(dict[index].D, dict[index].E, rho)
+		grpComR.Add(comRi)
 	}
 	c := H2(ss.m, &grpComR, &d.grpPubKey)
-	myPho := H1(&d.id, ssBytes)
-	z := SkMul(myPho, &d.e[ss.signCounter])
-	z.Add(&d.d[ss.signCounter])
+	myRho := H1(&d.id, ssBytes)
+	zi := SkMul(myRho, &d.e[ss.signCounter])
+	zi.Add(&d.d[ss.signCounter])
 	lambda := LagrangeCoefficient(d.index, ss)
-	out := SkMul(&d.signPrivKey, lambda)
+	out := SkMul(&d.sigPrivKey, lambda)
 	out = SkMul(out, c)
-	z.Add(out)
-	return &grpComR, z
+	zi.Add(out)
+	return &Sign{index: d.index, R: nil, z: zi}
 }
 
 func LagrangeCoefficient(index int, ss *SignerSet) *bls.SecretKey {
@@ -152,6 +198,9 @@ func LagrangeCoefficient(index int, ss *SignerSet) *bls.SecretKey {
 	var lambda bls.SecretKey
 	lambda.SetDecString(a1.GetString(10))
 	return &lambda
+}
+func SAVerify(ss *SignerSet) {
+
 }
 func TtestFrLagrangeInterpolation() {
 	var out, x1, x2, x3, y1, y2, y3 bls.Fr
