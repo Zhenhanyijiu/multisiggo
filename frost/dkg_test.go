@@ -19,7 +19,7 @@ func TestDkg_Set(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	ret := New(7, 13, GetIDList(2, 13))
+	ret := NewDKG(7, 13, GetIDList(2, 13))
 	assert.NotNil(t, ret)
 	assert.Equal(t, 2, ret.index)
 }

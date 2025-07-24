@@ -25,7 +25,8 @@ func (d *Dkg) Preprocess(n int) *DEList {
 		E[i] = *d.e[i].GetPublicKey()
 		D[i] = *d.d[i].GetPublicKey()
 	}
-	return &DEList{index: d.index, E: E, D: D}
+	return &DEList{index: d.index,
+		id: d.id, E: E, D: D}
 }
 
 type SA struct {
@@ -51,7 +52,7 @@ func (s *SA) SaveDElist(index int, deList *DEList) {
 }
 
 // t<=alpha<=n
-func (s *SA) CreateSignSet(m string, signCounter int, indexSet []int) *SignerSet {
+func (s *SA) CreateSignerSet(m string, signCounter int, indexSet []int) *SignerSet {
 	alpha := len(indexSet)
 	if alpha < s.t || alpha > s.n {
 		fmt.Printf("error")
@@ -65,7 +66,7 @@ func (s *SA) CreateSignSet(m string, signCounter int, indexSet []int) *SignerSet
 	for _, index := range indexSet {
 		deLst := s.deLists[index]
 		ret.dEUsing[index] = &iDDE{id: &deLst.id,
-			D: &deLst.D[signCounter], E: &deLst.E[signCounter]}
+			D: &deLst.D[signCounter-1], E: &deLst.E[signCounter-1]}
 	}
 	return &ret
 }
@@ -93,18 +94,25 @@ func (s *SA) SignAgg(ss *SignerSet, ziList []*Sign) (*Sign, error) {
 		RiList[index] = Ri_
 	}
 	challenge := H2(ss.m, &grpComR, s.grpPubKey)
+	fmt.Printf("sa  chall:%+v\n", challenge.GetDecString())
 	for _, sign := range ziList {
-		ok := IsValid(RiList[sign.index], &s.sigPubkeys[sign.index], sign.z, challenge)
+		lambda := LagrangeCoefficient(sign.index, ss)
+		fmt.Printf("zi %+v,lambda:%+v\n", sign.index, lambda.GetDecString())
+		lambda = SkMul(lambda, challenge)
+		ok := IsValid(RiList[sign.index], &s.sigPubkeys[sign.index], sign.z, lambda)
 		if !ok {
 			return nil, fmt.Errorf("not valid")
 		}
 	}
+	fmt.Printf("---------------------------------------- 1\n")
 	var z bls.SecretKey
 	for _, sign := range ziList {
 		z.Add(sign.z)
 	}
+	fmt.Printf("---------------------------------------- 2\n")
+
 	//chack
-	return &Sign{index: -1, R: nil, z: &z}, nil
+	return &Sign{index: -1, R: &grpComR, z: &z}, nil
 }
 
 type iDDE struct {
@@ -146,7 +154,8 @@ func H2(m string, grpR *bls.PublicKey, grpPk *bls.PublicKey) *bls.SecretKey {
 	h2 := sha256.New()
 	h2.Write([]byte(m))
 	h2.Write(grpR.Serialize())
-	ret := h2.Sum(grpPk.Serialize())
+	h2.Write(grpPk.Serialize())
+	ret := h2.Sum(nil)
 	var c bls.SecretKey
 	c.SetLittleEndianMod(ret)
 	return &c
@@ -160,21 +169,33 @@ func (d *Dkg) Sign(ss *SignerSet) *Sign {
 	var grpComR bls.PublicKey
 	ssBytes := ss.GetBytes()
 	dict := ss.dEUsing
+	CRi := map[int]*bls.PublicKey{}
 	for _, index := range ss.indexSet {
 		rho := H1(dict[index].id, ssBytes)
 		//pk := ScalarPK(rho, dict[ss.indexSet[i]].E)
 		//pk.Add(dict[ss.indexSet[i]].D)
 		comRi := Ri(dict[index].D, dict[index].E, rho)
+		CRi[index] = comRi
 		grpComR.Add(comRi)
 	}
 	c := H2(ss.m, &grpComR, &d.grpPubKey)
+	fmt.Printf("dkg chall:%+v\n", c.GetDecString())
 	myRho := H1(&d.id, ssBytes)
-	zi := SkMul(myRho, &d.e[ss.signCounter])
-	zi.Add(&d.d[ss.signCounter])
+	zi := SkMul(myRho, &d.e[ss.signCounter-1]) //从0开始
+	zi.Add(&d.d[ss.signCounter-1])
 	lambda := LagrangeCoefficient(d.index, ss)
+	fmt.Printf("dkg %+v,lambda:%+v\n", d.index, lambda.GetDecString())
 	out := SkMul(&d.sigPrivKey, lambda)
 	out = SkMul(out, c)
 	zi.Add(out)
+	///////////////
+	c2 := SkMul(c, lambda)
+	fg := IsValid(CRi[d.index], d.sigPubKey, zi, c2)
+	if fg {
+		fmt.Printf("====== ooooooooooooooooook\n")
+	} else {
+		panic("=====  errrrrrrrrrrrrr\nr")
+	}
 	return &Sign{index: d.index, R: nil, z: zi}
 }
 

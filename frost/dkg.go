@@ -63,7 +63,7 @@ func (d *Dkg) Set(t, n int, idlist *IDList) *Dkg {
 	d.sigPubKeys = make([]bls.PublicKey, d.n)
 	return d
 }
-func New(t, n int, idlist *IDList) *Dkg {
+func NewDKG(t, n int, idlist *IDList) *Dkg {
 	return new(Dkg).Set(t, n, idlist)
 }
 
@@ -132,6 +132,7 @@ func Hash2SecretKey(input []byte) (*bls.SecretKey, error) {
 	if err := s.SetLittleEndianMod(ret); err != nil {
 		return nil, err
 	}
+	//fmt.Printf("+++++++++++ %+v\n", s.GetDecString())
 	return &s, nil
 }
 func GetHashInput(id *bls.ID, a0G, comRi *bls.PublicKey) ([]byte, error) {
@@ -179,12 +180,19 @@ func ZkVerify(id *bls.ID, a0G *bls.PublicKey, poof *Poof) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	left := poof.u.GetPublicKey()
-	// ci*PK
-	rignt := ScalarPK(ci, a0G)
-	rignt = PkNeg(rignt)
-	left.Add(rignt)
-	return left.IsEqual(poof.R), nil
+	//left := poof.u.GetPublicKey()
+	//// ci*PK
+	//rignt := ScalarPK(ci, a0G)
+	//rignt = PkNeg(rignt)
+	//left.Add(rignt)
+	//return left.IsEqual(poof.R), nil
+	fg := IsValid(poof.R, a0G, poof.u, ci)
+	if fg {
+		return fg, nil
+
+	}
+
+	return false, fmt.Errorf("ZkVerify error")
 }
 func SkMul(sk1, sk2 *bls.SecretKey) (out *bls.SecretKey) {
 	var fr1, fr2 bls.Fr
