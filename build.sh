@@ -26,7 +26,7 @@ compile_frost_lib(){
   echo "-------------- pwd:${PWD}"
   LD_LIBRARY_PATH=${pwd}/out/lib CGO_CFLAGS="-I${pwd}/out/include"\
   CGO_LDFLAGS="-lbls384_256 -lmcl -L${pwd}/out/lib -lstdc++" \
-  go test -v -benchmem -count=1 -cpu=1 -run=./frost
+  go test -v -benchmem -count=1 -cpu=1 -run=. -tags=dkg_test
 }
 param=$1
 run(){

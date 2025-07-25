@@ -1,6 +1,7 @@
 package frost
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"github.com/herumi/bls/ffi/go/bls"
 	"testing"
@@ -19,7 +20,7 @@ func TestDkg_Set(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	ret := New(7, 13, GetIDList(2, 13))
+	ret := NewDKG(7, 13, GetIDList(2, 13))
 	assert.NotNil(t, ret)
 	assert.Equal(t, 2, ret.index)
 }
@@ -173,7 +174,7 @@ func TestDkgProtocol(t *testing.T) {
 				assert.True(t, fg)
 			}
 		}
-		assert.True(t, dkgs[0].grpPubKey.IsEqual(&dkgs[i].grpPubKey))
+		assert.True(t, dkgs[0].grpPubKey.IsEqual(dkgs[i].grpPubKey))
 	}
 	// recover
 	S := []int{0, 1, 3, 4}
@@ -182,11 +183,11 @@ func TestDkgProtocol(t *testing.T) {
 	err := groupSk.Recover(sks, ids)
 	assert.NoError(t, err)
 	grpPk := groupSk.GetPublicKey()
-	assert.True(t, grpPk.IsEqual(&dkgs[0].grpPubKey))
+	assert.True(t, grpPk.IsEqual(dkgs[0].grpPubKey))
 	var grpPk_ bls.PublicKey
 	err = grpPk_.Recover(pks, ids)
 	assert.NoError(t, err)
-	assert.True(t, grpPk_.IsEqual(&dkgs[0].grpPubKey), "not ok")
+	assert.True(t, grpPk_.IsEqual(dkgs[0].grpPubKey), "not ok")
 }
 func genid(set []int, dkgs []Dkg) ([]bls.ID, []bls.SecretKey, []bls.PublicKey) {
 	var sks []bls.SecretKey
@@ -198,4 +199,24 @@ func genid(set []int, dkgs []Dkg) ([]bls.ID, []bls.SecretKey, []bls.PublicKey) {
 		pks = append(pks, *dkgs[v].sigPubKey)
 	}
 	return ids, sks, pks
+}
+func TestIsValid(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		var x bls.SecretKey
+		x.SetByCSPRNG()
+		Y := x.GetPublicKey()
+		var r bls.SecretKey
+		r.SetByCSPRNG()
+		R := r.GetPublicKey()
+		hh := sha256.New()
+		hh.Write(R.Serialize())
+		hh.Write(Y.Serialize())
+		ret := hh.Sum(nil)
+		var c bls.SecretKey
+		err := c.SetLittleEndianMod(ret)
+		assert.NoError(t, err)
+		u := SkMul(&x, &c)
+		u.Add(&r)
+		assert.True(t, IsValid(R, Y, u, &c))
+	}
 }
